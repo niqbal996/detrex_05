@@ -202,7 +202,7 @@ def do_train(args, cfg):
     """
     model = instantiate(cfg.model)
     logger = logging.getLogger("detectron2")
-    logger.info("Model:\n{}".format(model))
+    # logger.info("Model:\n{}".format(model))
     model.to(cfg.train.device)
     
     # instantiate optimizer
@@ -260,6 +260,9 @@ def do_train(args, cfg):
                 writers,
                 period=cfg.train.log_period,
             )
+            # hooks.BestCheckpointer(eval_period=cfg.train.eval_period, checkpointer=checkpointer, 
+            #                        val_metric='bbox/AP50', mode='max', 
+            #                        file_prefix='model_best_mAP50')
             if comm.is_main_process()
             else None,
         ]
@@ -279,7 +282,7 @@ def main(args):
     cfg = LazyConfig.load(args.config_file)
     cfg = LazyConfig.apply_overrides(cfg, args.opts)
     default_setup(cfg, args)
-    
+
     # Enable fast debugging by running several iterations to check for any bugs.
     if cfg.train.fast_dev_run.enabled:
         cfg.train.max_iter = 20

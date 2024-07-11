@@ -17,6 +17,10 @@ import os
 import sys
 import time
 import torch
+import resource
+rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
+resource.setrlimit(resource.RLIMIT_NOFILE, (4096, rlimit[1]))
+
 from torch.nn.parallel import DataParallel, DistributedDataParallel
 
 from detectron2.checkpoint import DetectionCheckpointer
@@ -203,7 +207,7 @@ def do_train(args, cfg):
     optim = torch.optim.AdamW(param_dicts, 2e-4, weight_decay=1e-4)
 
     train_loader = instantiate(cfg.dataloader.train)
-
+    val_loader = instantiate(cfg.dataloader.test)
     model = create_ddp_model(model, **cfg.train.ddp)
 
     trainer = Trainer(
@@ -228,15 +232,18 @@ def do_train(args, cfg):
             if comm.is_main_process()
             else None,
             hooks.EvalHook(cfg.train.eval_period, lambda: do_test(cfg, model)),
+            hooks.LossEvalHook(cfg.train.eval_period, model, val_loader),
             hooks.PeriodicWriter(
                 default_writers(cfg.train.output_dir, cfg.train.max_iter),
                 period=cfg.train.log_period,
-            )
+            ),
+            hooks.BestCheckpointer(eval_period=cfg.train.eval_period, checkpointer=checkpointer, 
+                                   val_metric='bbox/AP50', mode='max', 
+                                   file_prefix='model_best_mAP50')
             if comm.is_main_process()
             else None,
         ]
     )
-
     checkpointer.resume_or_load(cfg.train.init_checkpoint, resume=args.resume)
     if args.resume and checkpointer.has_checkpoint():
         # The checkpoint stores the training iteration that just finished, thus we start
@@ -260,6 +267,13 @@ def main(args):
         print(do_test(cfg, model))
     else:
         do_train(args, cfg)
+        # Do last evaluation with the best model
+        model = instantiate(cfg.model)
+        model.to(cfg.train.device)
+        model = create_ddp_model(model)
+        # Load best model saved in the checkpointer directory
+        DetectionCheckpointer(model).load(os.path.join(cfg.train.output_dir, 'model_best_mAP50.pth'))
+        print(do_test(cfg, model))
 
 
 if __name__ == "__main__":
