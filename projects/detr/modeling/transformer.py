@@ -53,6 +53,8 @@ class DetrTransformerEncoder(TransformerLayerSequence):
         )
         self.embed_dim = self.layers[0].embed_dim
         self.pre_norm = self.layers[0].pre_norm
+        self.self_attention_maps = []
+        self.cross_attention_maps = []
 
         if post_norm:
             self.post_norm_layer = nn.LayerNorm(self.embed_dim)
@@ -84,6 +86,9 @@ class DetrTransformerEncoder(TransformerLayerSequence):
                 key_padding_mask=key_padding_mask,
                 **kwargs,
             )
+            self.self_attention_maps.append(query[1])
+            self.cross_attention_maps.append(query[2])
+            query = query[0]
 
         if self.post_norm_layer is not None:
             query = self.post_norm_layer(query)
@@ -125,6 +130,8 @@ class DetrTransformerDecoder(TransformerLayerSequence):
         )
         self.return_intermediate = return_intermediate
         self.embed_dim = self.layers[0].embed_dim
+        self.self_attention_maps = []
+        self.cross_attention_maps = []
 
         if post_norm:
             self.post_norm_layer = nn.LayerNorm(self.embed_dim)
@@ -157,6 +164,9 @@ class DetrTransformerDecoder(TransformerLayerSequence):
                     key_padding_mask=key_padding_mask,
                     **kwargs,
                 )
+                self.self_attention_maps.append(query[1])
+                self.cross_attention_maps.append(query[2])
+                query = query[0]
 
             if self.post_norm_layer is not None:
                 query = self.post_norm_layer(query)[None]
@@ -176,6 +186,9 @@ class DetrTransformerDecoder(TransformerLayerSequence):
                 key_padding_mask=key_padding_mask,
                 **kwargs,
             )
+            self.self_attention_maps.append(query[1])
+            self.cross_attention_maps.append(query[2])
+            query = query[0]
 
             if self.return_intermediate:
                 if self.post_norm_layer is not None:

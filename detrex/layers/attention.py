@@ -127,15 +127,16 @@ class MultiheadAttention(nn.Module):
         if key_pos is not None:
             key = key + key_pos
 
+        # This throws away attention maps by only taking 0 as input.
         out = self.attn(
             query=query,
             key=key,
             value=value,
             attn_mask=attn_mask,
             key_padding_mask=key_padding_mask,
-        )[0]
+        )
 
-        return identity + self.proj_drop(out)
+        return identity + self.proj_drop(out[0]), out[1]   # attention maps for visualization
 
 
 class ConditionalSelfAttention(nn.Module):

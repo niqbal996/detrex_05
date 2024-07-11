@@ -99,6 +99,10 @@ class DETR(nn.Module):
         pixel_std = torch.Tensor(pixel_std).to(self.device).view(3, 1, 1)
         self.normalizer = lambda x: (x - pixel_mean) / pixel_std
 
+        self.enc_output = None 
+        self.dec_output = None 
+        self.feature_map = None 
+
     def forward(self, batched_inputs):
         """Forward function of `DAB-DETR` which excepts a list of dict as inputs.
 
@@ -139,10 +143,15 @@ class DETR(nn.Module):
         # only use last level feature in DETR
         features = self.backbone(images.tensor)[self.in_features[-1]]
         features = self.input_proj(features)
+        self.feature_map = features
         img_masks = F.interpolate(img_masks[None], size=features.shape[-2:]).to(torch.bool)[0]
         pos_embed = self.position_embedding(img_masks)
 
         hidden_states, _ = self.transformer(features, img_masks, self.query_embed.weight, pos_embed)
+
+        self.enc_output = _
+        self.dec_output = hidden_states
+
 
         outputs_class = self.class_embed(hidden_states)
         outputs_coord = self.bbox_embed(hidden_states).sigmoid()
