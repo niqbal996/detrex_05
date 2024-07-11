@@ -67,7 +67,39 @@ def default_coco_scheduler(epochs=50, decay_epochs=40, warmup_epochs=0):
         warmup_factor=0.001,
     )
 
+def default_synthetic_scheduler(epochs=12, decay_epochs=9, warmup_epochs=0):
+    """
+    Returns the config for a default multi-step LR scheduler such as "50epochs",
+    commonly referred to in papers, where every 1x has the total length of 12000 (1000x12)
+    training images (~12 Phenobench epochs). LR is decayed once at the end of training.
 
+    Args:
+        epochs (int): total training epochs.
+        decay_epochs (int): lr decay steps.
+        warmup_epochs (int): warmup epochs.
+
+    Returns:
+        DictConfig: configs that define the multiplier for LR during training
+    """
+    # total number of iterations assuming 30 batch size, using 12000/30=400
+    # total_steps_30bs = 4000
+    # decay_steps = 600
+    warmup_steps = 200
+    scheduler = L(MultiStepParamScheduler)(
+        values=[1.0, 0.5, 0.1],
+        milestones=[600, 1000, 1600],
+        # values=[1.0, 0.75, 0.6, 0.1],
+        # milestones=[200, 300, 600, 1200],    # the milestone for 1 has to be where warm up ends.
+        # values=[1.0, 0.5, 0.1],
+        # milestones=[200, 1000, 2000],
+    )
+    return L(WarmupParamScheduler)(
+        scheduler=scheduler,
+        warmup_length=warmup_steps / 3000,
+        warmup_method="linear",
+        warmup_factor=0.001,
+    )
+    
 # default coco scheduler
 lr_multiplier_1x = default_X_scheduler(1)
 lr_multiplier_2x = default_X_scheduler(2)
@@ -85,3 +117,4 @@ lr_multiplier_12ep = default_coco_scheduler(12, 11, 0)
 # warmup scheduler for detr
 lr_multiplier_50ep_warmup = default_coco_scheduler(50, 40, 1e-3)
 lr_multiplier_12ep_warmup = default_coco_scheduler(12, 11, 1e-3)
+lr_multiplier_12ep_synthetic = default_synthetic_scheduler(12, 8, 1)
