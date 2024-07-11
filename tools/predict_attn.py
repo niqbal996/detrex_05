@@ -176,13 +176,15 @@ def main(args):
             colors = COLORS * 100
             h, w = conv_features.shape[1:]
             focus_points = []
+            for idx in indices[0]:
+                xmin, ymin, xmax, ymax = boxes[idx, 0], boxes[idx, 1], boxes[idx, 2], boxes[idx, 3] 
+                focus_points.append((
+                                    int((ymax + ymin).item()/2),
+                                    int((xmax + xmin).item()/2), 
+                                    ))
             for dec_attn_head_idx in range(len(dec_attn_weights)):
                 for idx, ax_i in zip(indices[0], axs.T):
                     xmin, ymin, xmax, ymax = boxes[idx, 0], boxes[idx, 1], boxes[idx, 2], boxes[idx, 3] 
-                    focus_points.append((
-                                            int((ymax + ymin).item()/2),
-                                            int((xmax + xmin).item()/2), 
-                                        ))
                     ax = ax_i[0]
                     # for dec_attn_head_idx in range(len(dec_attn_weights)):
                     ax.imshow(dec_attn_weights[dec_attn_head_idx][0, idx, :].detach().cpu().view(h,w))
@@ -213,6 +215,70 @@ def main(args):
             # # cv2.imshow('prediction', super_imposed_img)
             # # cv2.waitKey()
             # cv2.imwrite('image.png', super_imposed_img)
+                # output of the CNN
+            print("Encoder attention:      ", enc_attn_weights[0].shape)
+            print("Feature map:            ", conv_features.shape)
+
+            # get the HxW shape of the feature maps of the CNN
+            shape = conv_features.shape[1:]
+            # and reshape the self-attention to a more interpretable shape
+            sattn = enc_attn_weights[0].reshape(shape + shape).detach().cpu()
+            print("Reshaped self-attention:", sattn.shape)
+
+            # downsampling factor for the CNN, is 32 for DETR and 16 for DETR DC5
+            fact = 32
+
+            # let's select 4 reference points for visualization
+            # idxs = [(200, 200), (280, 400), (200, 600), (440, 800),]
+            # idxs = [(426, 260), (440, 426), (960, 77), (482, 882),]
+            # idxs = [(260, 426), (426, 440), (77, 960), (882, 482),]
+            idxs = focus_points
+            # here we create the canvas
+            fig = plt.figure(constrained_layout=True, figsize=(27, 10))
+            # and we add one plot per reference point
+            gs = fig.add_gridspec(len(focus_points)//2, len(idxs))
+            axs = []
+            if len(focus_points) % 2 == 0:
+                for idx in range(len(focus_points)//2):
+                    axs.append(fig.add_subplot(gs[idx, 0]))
+                for idx in range(len(focus_points)//2):
+                    axs.append(fig.add_subplot(gs[idx, -1]))
+            else:
+                for idx in range(int(len(focus_points)/2)):
+                    axs.append(fig.add_subplot(gs[idx, 0]))
+                for idx in range(int(len(focus_points)/2)-1):
+                    axs.append(fig.add_subplot(gs[idx, -1]))
+                
+            # for each one of the reference points, let's plot the self-attention
+            # for that point
+            for idx_o, ax in zip(idxs, axs):
+                idx = (idx_o[0] // fact, idx_o[1] // fact)
+                # if idx[0] > 24:
+                #     idx[0] == 24
+                # if idx[1] > 24:
+                #     idx[1] == 24
+                ax.imshow(sattn[..., idx[0], idx[1]], cmap='cividis', interpolation='nearest')
+                ax.axis('off')
+                ax.set_title(f'self-attention{idx_o}')
+
+            # and now let's add the central image, with the reference points as red circles
+            fcenter_ax = fig.add_subplot(gs[:, 1:-1])
+            fcenter_ax.imshow(pil_image)
+            for (y, x) in idxs:
+                scale = pil_image.height / pil_image.size[1]
+                x_proj = ((x // fact) + 0.5) * fact
+                y_proj = ((y // fact) + 0.5) * fact
+                fcenter_ax.add_patch(plt.Circle((x_proj * scale, y_proj * scale), 2.0, color='r'))
+                fcenter_ax.text(x=x_proj * scale, 
+                                y=(y_proj * scale) + 5, 
+                                s='{}, {}'.format(y,x), 
+                                color='w')
+                fcenter_ax.axis('off')
+            # plt.show()
+            fig.tight_layout()
+            plt.savefig("self_attention_maps", dpi=200)
+            sys.exit()
+            # plt.show()
             
 
 
