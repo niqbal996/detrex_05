@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
+cfg=$1
 ulimit -s unlimited
-export CUDA_HOME=/usr/local/cuda-11.8/
-export PYTHONPATH=$PYTHONPATH:/workspace/detrex:workspace/detrex/detectron2
+#ulimit -n 1048576
+# export CUDA_HOME=/usr/local/cuda-11.8/
+# # export PYTHONPATH=$PYTHONPATH:/workspace/detrex:workspace/detrex/detectron2
+# export PYTHONPATH=/home/iqbal/detrex_orig:/home/iqbal/detrex_orig/detectron2
+./source.sh
+#ulimit -s unlimited
 # python3 projects/deta/train_net.py --config-file projects/deta/configs/deta_swin_large_finetune_24ep_10.py
 # python3 projects/deta/train_net.py --config-file projects/deta/configs/deta_swin_large_finetune_24ep_20.py
 # python3 projects/deta/train_net.py --config-file projects/deta/configs/deta_swin_large_finetune_24ep_30.py
@@ -14,4 +19,5 @@ export PYTHONPATH=$PYTHONPATH:/workspace/detrex:workspace/detrex/detectron2
 # python3 projects/deta/train_net.py --config-file projects/deta/configs/deta_swin_large_finetune_24ep_100.py
 # python3 projects/deta/train_net.py --config-file projects/deta/configs/deta_swin_large_finetune_24ep_maize.py
 # python3 projects/deta/train_net.py --config-file projects/deta/configs/deta_swin_large_finetune_24ep_pheno.py
-python3 tools/train_net.py --config-file projects/deta/configs/deta_swin_large_finetune_24ep_pheno.py
+# python3 projects/deformable_detr/train_net.py --config-file projects/deformable_detr/configs/deformable_detr_r50_50ep_pheno.py
+python3 projects/deformable_detr/train_net.py --config-file $cfg
