@@ -1,15 +1,18 @@
+import os
+import argparse
 from detrex.config import get_config
 from .models.deformable_detr_r50 import model
+from configs.common.data.sugarbeets_aug import AugmentedDataloader
 
-dataloader = get_config("common/data/sugarbeets_aug.py").dataloader
-# lr_multiplier = get_config("common/coco_schedule.py").lr_multiplier_50ep
+apply_all = True
+dataloader = AugmentedDataloader().dataloader
 from .scheduler.coco_scheduler import lr_multiplier_12ep_synthetic_2e_4 as lr_multiplier
 optimizer = get_config("common/optim.py").AdamW
 train = get_config("common/train.py").train
 
 # modify training config
 train.init_checkpoint = "/netscratch/naeem/deformable_detr_r50.pth"
-train.output_dir = "/netscratch/naeem/attention_maps_v6/phenobench_deformable_detr_syn_v6_augmented"
+train.output_dir = "/netscratch/naeem/attention_maps_v6/augmentation_experiments"
 
 # gradient clipping for training
 train.clip_grad.enabled = True
@@ -31,21 +34,24 @@ optimizer.params.lr_factor_func = lambda module_name: 0.1 if "backbone" in modul
 train.max_iter = 5000
 train.eval_period = 200
 train.log_period = 10
-train.checkpointer = dict(period=200, max_to_keep=1)
+train.checkpointer = dict(period=200, max_to_keep=0)
 
 # modify dataloader config
 dataloader.train.total_batch_size = 30          # 16 on 40GB and 30 on 80 GB
-dataloader.train.num_workers = 30
+dataloader.train.num_workers = 20
 dataloader.test.batch_size = 30
-dataloader.test.num_workers = 30
+dataloader.test.num_workers = 20
 
 from detectron2.data.datasets import register_coco_instances
-register_coco_instances("pheno_train", {},
-                        "/netscratch/naeem/phenobench/coco_annotations/coco_plants_panoptic_train.json",
-                        "/netscratch/naeem/phenobench/train/")
+root_dir = '/netscratch/naeem/'
 register_coco_instances("syn_pheno_train", {},
-                        "/netscratch/naeem/sugarbeet_syn_v6/coco_annotations/instances_train.json",
-                        "/netscratch/naeem/sugarbeet_syn_v6/images")
+                        os.path.join(root_dir, "coco_annotations/coco_plants_panoptic_train.json"),
+                        os.path.join(root_dir, "phenobench/train/")
+                        )
+# register_coco_instances("syn_pheno_train", {},
+#                         "/netscratch/naeem/sugarbeet_syn_v6/coco_annotations/instances_train.json",
+#                         "/netscratch/naeem/sugarbeet_syn_v6/images")
 register_coco_instances("pheno_val", {},
-                        "/netscratch/naeem/phenobench/coco_annotations/coco_plants_panoptic_val.json",
-                        "/netscratch/naeem/phenobench/val/")
+                        os.path.join(root_dir, "coco_annotations/coco_plants_panoptic_val.json"),
+                        os.path.join(root_dir, "phenobench/val/")
+                        )

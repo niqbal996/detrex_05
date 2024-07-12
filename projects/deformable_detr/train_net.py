@@ -254,8 +254,30 @@ def do_train(args, cfg):
 def main(args):
     cfg = LazyConfig.load(args.config_file)
     cfg = LazyConfig.apply_overrides(cfg, args.opts)
-    default_setup(cfg, args)
+    if args.aug_index>0:
+        tmp1 = cfg['dataloader']['train']['mapper']['augmentations']
+        tmp2 = []
+        tmp2.append(tmp1[0])
+        tmp2.append(tmp1[args.aug_index])
+        cfg['dataloader']['train']['mapper']['augmentations'] = tmp2
+        tmp2 = []
+        tmp1 = []
+        augmentation_name = cfg['dataloader']['train']['mapper']['augmentations'][1]._aug.__class__.__name__
+        cfg['train'].output_dir = os.path.join(cfg['train'].output_dir, 'phenobench_def_detr_syn_v6_aug_'+augmentation_name)
+    elif args.aug_index==0:
+        tmp1 = cfg['dataloader']['train']['mapper']['augmentations']
+        tmp2 = []
+        tmp2.append(tmp1[0])
+        cfg['dataloader']['train']['mapper']['augmentations'] = tmp2
+        tmp2 = []
+        tmp1 = []
+        augmentation_name = 'no_augmentation'
+        cfg['train'].output_dir = os.path.join(cfg['train'].output_dir, 'phenobench_def_detr_syn_v6_aug_'+augmentation_name)
+    else:
+        augmentation_name = 'all_augmentations'
+        cfg['train'].output_dir = os.path.join(cfg['train'].output_dir, 'phenobench_def_detr_syn_v6_aug_'+augmentation_name)
 
+    default_setup(cfg, args)
     if args.eval_only:
         model = instantiate(cfg.model)
         model.to(cfg.train.device)
