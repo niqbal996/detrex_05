@@ -203,7 +203,7 @@ def do_train(args, cfg):
     optim = torch.optim.AdamW(param_dicts, 2e-4, weight_decay=1e-4)
 
     train_loader = instantiate(cfg.dataloader.train)
-
+    val_loader = instantiate(cfg.dataloader.test)
     model = create_ddp_model(model, **cfg.train.ddp)
 
     trainer = Trainer(
@@ -228,10 +228,14 @@ def do_train(args, cfg):
             if comm.is_main_process()
             else None,
             hooks.EvalHook(cfg.train.eval_period, lambda: do_test(cfg, model)),
+            hooks.LossEvalHook(cfg.train.eval_period, model, val_loader),
             hooks.PeriodicWriter(
                 default_writers(cfg.train.output_dir, cfg.train.max_iter),
                 period=cfg.train.log_period,
-            )
+            ),
+            hooks.BestCheckpointer(eval_period=cfg.train.eval_period, checkpointer=checkpointer, 
+                                   val_metric='bbox/AP50', mode='max', 
+                                   file_prefix='model_best_mAP50')
             if comm.is_main_process()
             else None,
         ]

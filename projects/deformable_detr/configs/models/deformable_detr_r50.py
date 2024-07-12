@@ -15,7 +15,7 @@ from projects.deformable_detr.modeling import (
     DeformableDetrTransformer,
     DeformableCriterion,
 )
-
+num_classes = 2
 model = L(DeformableDETR)(
     backbone=L(ResNet)(
         stem=L(BasicStem)(in_channels=3, out_channels=64, norm="FrozenBN"),
@@ -71,13 +71,13 @@ model = L(DeformableDETR)(
         two_stage_num_proposals="${..num_queries}",
     ),
     embed_dim=256,
-    num_classes=80,
+    num_classes=num_classes,
     num_queries=300,
     aux_loss=True,
     with_box_refine=False,
     as_two_stage=False,
     criterion=L(DeformableCriterion)(
-        num_classes=80,
+        num_classes=num_classes,
         matcher=L(HungarianMatcher)(
             cost_class=2.0,
             cost_bbox=5.0,
