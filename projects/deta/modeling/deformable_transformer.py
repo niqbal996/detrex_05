@@ -65,6 +65,8 @@ class DeformableDetrTransformerEncoder(TransformerLayerSequence):
         )
         self.embed_dim = self.layers[0].embed_dim
         self.pre_norm = self.layers[0].pre_norm
+        self.self_attention_maps = []
+        self.cross_attention_maps = []
 
         if post_norm:
             self.post_norm_layer = nn.LayerNorm(self.embed_dim)
@@ -95,6 +97,9 @@ class DeformableDetrTransformerEncoder(TransformerLayerSequence):
                 key_padding_mask=key_padding_mask,
                 **kwargs,
             )
+            self.self_attention_maps.append(query[1])
+            self.cross_attention_maps.append(query[2])
+            query = query[0]
 
         if self.post_norm_layer is not None:
             query = self.post_norm_layer(query)
@@ -142,6 +147,8 @@ class DeformableDetrTransformerDecoder(TransformerLayerSequence):
             num_layers=num_layers,
         )
         self.return_intermediate = return_intermediate
+        self.self_attention_maps = []
+        self.cross_attention_maps = []
 
         self.bbox_embed = None
         self.class_embed = None
@@ -186,6 +193,9 @@ class DeformableDetrTransformerDecoder(TransformerLayerSequence):
                 reference_points=reference_points_input,
                 **kwargs,
             )
+            self.self_attention_maps.append(output[1])
+            self.cross_attention_maps.append(output[2])
+            output = output[0]
 
             if self.bbox_embed is not None:
                 tmp = self.bbox_embed[layer_idx](output)

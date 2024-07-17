@@ -15,7 +15,7 @@ from projects.deta.modeling import (
     DeformableDetrTransformer,
     DETACriterion,
 )
-
+num_classes = 2
 model = L(DeformableDETR)(
     backbone=L(ResNet)(
         stem=L(BasicStem)(in_channels=3, out_channels=64, norm="FrozenBN"),
@@ -72,13 +72,13 @@ model = L(DeformableDETR)(
         assign_first_stage=True,
     ),
     embed_dim=256,
-    num_classes=80,
+    num_classes=num_classes,
     num_queries=900,
     aux_loss=True,
     with_box_refine=True,
     as_two_stage=True,
     criterion=L(DETACriterion)(
-        num_classes=80,
+        num_classes=num_classes,
         matcher=L(HungarianMatcher)(
             cost_class=2.0,
             cost_bbox=5.0,

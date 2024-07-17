@@ -195,6 +195,13 @@ class DeformableDETR(nn.Module):
             multi_level_feats, multi_level_masks, multi_level_position_embeddings, query_embeds
         )
 
+        if self.training:
+            self.transformer.encoder.self_attention_maps = []
+            self.transformer.encoder.cross_attention_maps = []
+            self.transformer.decoder.self_attention_maps = []
+            self.transformer.decoder.cross_attention_maps = []
+            torch.cuda.empty_cache()
+            
         # Calculate output coordinates and classes.
         outputs_classes = []
         outputs_coords = []
