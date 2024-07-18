@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-cfg=$1
+aug_index=$1
 ulimit -s unlimited
 ./source.sh
-python3 projects/deformable_detr/train_net.py --config-file projects/deformable_detr/configs/deformable_detr_r50_50ep_syn_v6_augmented.py --aug-index $cfg
+echo $aug_index
+python3 projects/deta/train_net.py --config-file projects/deta/configs/deta_swin_large_finetune_24ep_pheno_augmented_full.py --aug-index $aug_index
