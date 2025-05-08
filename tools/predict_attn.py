@@ -130,7 +130,7 @@ def main(args):
     DetectionCheckpointer(model, **ema.may_get_ema_checkpointer(cfg, model)).load(cfg.train.init_checkpoint)
     model.eval()
     pred = {}
-    images = glob(os.path.join('/netscratch/naeem/phenobench/test/images', '*.png'))
+    images = glob(os.path.join('/mnt/e/datasets/phenobench/test/images', '*.png'))
     img_data = []
     for img, c in zip(images, range(len(images))):
         img_dict = {}
@@ -151,17 +151,22 @@ def main(args):
         conv_features = conv_features[0]
         enc_attn_weights = model.transformer.encoder.self_attention_maps
         dec_attn_weights = model.transformer.decoder.cross_attention_maps
-        
+        a = dec_attn_weights[5]
+        a = torch.mean(a, dim=2, keepdim=False)
+        a = a.reshape(a.shape[1:])
+        a = a.detach().cpu().numpy()
+        for idx, tmp in enumerate(a):
+            plt.imshow(a[idx, : ,:])
         predictions = []
         for output in outputs:
             boxes = output['instances']._fields['pred_boxes'].tensor.cpu().detach().numpy()
             scores = output['instances']._fields['scores'].cpu().detach().numpy()
             labels = output['instances']._fields['pred_classes'].cpu().detach().numpy()
-            indices = np.where(scores > 0.5)
+            indices = np.where(scores > 0.3)
 
-            # boxes = boxes[indices]
-            # scores = scores[indices]
-            # labels = labels[indices]
+            boxes = boxes[indices]
+            scores = scores[indices]
+            labels = labels[indices]
 
             filename = os.path.basename(img_dict['filename'])
             for box in boxes:
@@ -171,34 +176,35 @@ def main(args):
                               color=(0, 255, 0),
                               thickness=2
                 )
-            cv2.imwrite('image.png', orig)
-            fig, axs = plt.subplots(ncols=len(indices[0]), nrows=2, figsize=(50, 14))
-            colors = COLORS * 100
-            h, w = conv_features.shape[1:]
-            focus_points = []
-            for idx in indices[0]:
-                xmin, ymin, xmax, ymax = boxes[idx, 0], boxes[idx, 1], boxes[idx, 2], boxes[idx, 3] 
-                focus_points.append((
-                                    int((ymax + ymin).item()/2),
-                                    int((xmax + xmin).item()/2), 
-                                    ))
-            for dec_attn_head_idx in range(len(dec_attn_weights)):
-                for idx, ax_i in zip(indices[0], axs.T):
-                    xmin, ymin, xmax, ymax = boxes[idx, 0], boxes[idx, 1], boxes[idx, 2], boxes[idx, 3] 
-                    ax = ax_i[0]
-                    # for dec_attn_head_idx in range(len(dec_attn_weights)):
-                    ax.imshow(dec_attn_weights[dec_attn_head_idx][0, idx, :].detach().cpu().view(h,w))
-                    ax.axis('off')
-                    ax.set_title(f'query id: {idx.item()}')
-                    ax = ax_i[1]
-                    ax.imshow(pil_image)
-                    ax.add_patch(plt.Rectangle((xmin, ymin), xmax - xmin, ymax - ymin,
-                                            fill=False, color='blue', linewidth=3))
-                    ax.axis('off')
-                    ax.set_title(CLASSES[labels[idx]])
-                plt.savefig("dec_attention_weights_head_{}.png".format(dec_attn_head_idx), dpi=200)
-            # plt.show()
-            fig.tight_layout()
+            cv2.imshow('image.png', orig)
+            cv2.waitKey(0)
+            # fig, axs = plt.subplots(ncols=len(indices[0]), nrows=2, figsize=(50, 14))
+            # colors = COLORS * 100
+            # h, w = conv_features.shape[1:]
+            # focus_points = []
+            # for idx in indices[0]:
+            #     xmin, ymin, xmax, ymax = boxes[idx, 0], boxes[idx, 1], boxes[idx, 2], boxes[idx, 3] 
+            #     focus_points.append((
+            #                         int((ymax + ymin).item()/2),
+            #                         int((xmax + xmin).item()/2), 
+            #                         ))
+            # for dec_attn_head_idx in range(len(dec_attn_weights)):
+            #     for idx, ax_i in zip(indices[0], axs.T):
+            #         xmin, ymin, xmax, ymax = boxes[idx, 0], boxes[idx, 1], boxes[idx, 2], boxes[idx, 3] 
+            #         ax = ax_i[0]
+            #         # for dec_attn_head_idx in range(len(dec_attn_weights)):
+            #         ax.imshow(dec_attn_weights[dec_attn_head_idx][0, idx, :].detach().cpu().view(h,w))
+            #         ax.axis('off')
+            #         ax.set_title(f'query id: {idx.item()}')
+            #         ax = ax_i[1]
+            #         ax.imshow(pil_image)
+            #         ax.add_patch(plt.Rectangle((xmin, ymin), xmax - xmin, ymax - ymin,
+            #                                 fill=False, color='blue', linewidth=3))
+            #         ax.axis('off')
+            #         ax.set_title(CLASSES[labels[idx]])
+            #     plt.savefig("dec_attention_weights_head_{}.png".format(dec_attn_head_idx), dpi=200)
+            # # plt.show()
+            # fig.tight_layout()
             # for query_idx in range(dec_attn_weights.shape[0]):
             #     sz = int(np.sqrt(dec_attn_weights.shape[1]))
             #     tmp = dec_attn_weights[query_idx, :].view(sz, sz)

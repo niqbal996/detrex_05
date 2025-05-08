@@ -5,7 +5,14 @@ detrex/config/configs
 detrex/version.py
 # experiment dirs
 outputs/
-
+*.pack
+*.txt
+weights/
+output/*
+*.json
+*.png
+*.jpg
+grad_cam/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

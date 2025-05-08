@@ -40,6 +40,9 @@ from detrex.modeling import ema
 from glob import glob
 import cv2
 import numpy as np
+from pytorch_grad_cam import GradCAM
+from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
+from pytorch_grad_cam.utils.image import show_cam_on_image
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir)))
       
@@ -93,20 +96,24 @@ def main(args):
     model.to(cfg.train.device)
     model = create_ddp_model(model)
     
+    target_layer = [model.backbone.layers[-1].blocks[-1].norm2]
+    cam = GradCAM(model=model, target_layers=target_layer)
+    
     # using ema for evaluation
-    ema.may_build_model_ema(cfg, model)
-    DetectionCheckpointer(model, **ema.may_get_ema_checkpointer(cfg, model)).load(cfg.train.init_checkpoint)
+    # ema.may_build_model_ema(cfg, model)
+    DetectionCheckpointer(model).load(cfg.train.init_checkpoint)
     # if True:
-    #     # predictor = DefaultPredictor(cfg)
+    #     predictor = DefaultPredictor(cfg)
     #     generate_submission(model, None, '/mnt/d/datasets/phenobench/test/images')
     # elif visualize:
     #     generate_submission(model, predictor)
     # print(do_test(cfg, model, eval_only=True))
     model.eval()
-    pred = {}
-    images = glob(os.path.join('/netscratch/naeem/phenobench/test/images', '*.png'))
-    img_data = []
+    # images = glob(os.path.join('/mnt/e/datasets/MOT20_raps/test/sequence_2/img1/', '*.png'))
+    images = glob(os.path.join('/mnt/e/datasets/phenobench/test/images', '*.png'))
+    cv2.namedWindow('prediction', cv2.WINDOW_NORMAL)
     for img, c in zip(images, range(len(images))):
+        img_data = []  # Reset img_data for each image
         img_dict = {}
         img_dict['filename'] = img
         img = cv2.imread(img)
@@ -118,55 +125,21 @@ def main(args):
         img_dict['image_id'] = c
         img_dict['image'] = torch.tensor(img, device='cpu', dtype=torch.uint8)
         img_data.append(img_dict)
-        outputs = model(img_data)
-        # v = Visualizer(orig,              #im[:, :, ::-1]
+        # outputs = model(img_data)
+        sample_cam = cam(input_tensor=img_dict['image'], targets=None)
+        visualization = show_cam_on_image(orig, sample_cam)
+        cv2.imshow('cam', visualization)
+        # v = Visualizer(orig,
         #        scale=1.0,
         #        instance_mode=ColorMode.IMAGE
         #    )
-        # outputs = predictor(img_data)
         # out = v.draw_instance_predictions(outputs[0]["instances"].to("cpu"))
         # img = out.get_image()
-        
-        predictions = []
-        for output in outputs:
-            boxes = output['instances']._fields['pred_boxes'].tensor.cpu().detach().numpy()
-            scores = output['instances']._fields['scores'].cpu().detach().numpy()
-            labels = output['instances']._fields['pred_classes'].cpu().detach().numpy()
-            indices = np.where(scores > 0.5)
-
-            boxes = boxes[indices]
-            scores = scores[indices]
-            labels = labels[indices]
-
-            filename = os.path.basename(img_dict['filename'])
-            boxes_xywh = boxes.copy()
-            # Convert XYXY to XYWH
-            boxes_xywh[:, 0] = (boxes[:, 2] - boxes[:, 0])/2        # x_center
-            boxes_xywh[:, 1] = (boxes[:, 3] - boxes[:, 1])/2        # y_center
-            boxes_xywh[:, 2] = boxes[:, 2] - boxes[:, 0]            # width
-            boxes_xywh[:, 3] = boxes[:, 3] - boxes[:, 1]            # height
-            for idx in range(boxes_xywh.shape[0]):
-                predictions.append([
-                                    labels[idx], 
-                                    boxes_xywh[idx, 0]/img_dict['width'], 
-                                    boxes_xywh[idx, 1]/img_dict['height'], 
-                                    boxes_xywh[idx, 2]/img_dict['width'],
-                                    boxes_xywh[idx, 3]/img_dict['height'], 
-                                    scores[idx]
-                                    ])
-        with open(os.path.join('/netscratch/naeem/phenobench/DETA_submission', filename[:-4]+'.txt'), 'w') as f:
-            for line in predictions:
-                string = " ".join(str(item) for item in line)
-                f.write(string + '\n')
-            # for box in boxes[indices]:
-            #     cv2.rectangle(orig, 
-            #                   (int(box[0]),int(box[1])),
-            #                   (int(box[2]),int(box[3])),
-            #                   color=(0, 255, 0),
-            #                   thickness=2
-            #     )
-        # cv2.imshow('prediction', orig)
-        # cv2.waitKey()
+        # cv2.imshow('prediction', img)
+        key = cv2.waitKey(0)
+        if key == 27:  # ESC key to exit
+            break
+    cv2.destroyAllWindows()  # Clean up the window at the end
             
 
 
