@@ -6,34 +6,22 @@ import numpy as np
 import requests
 import torch
 import torchvision
+from collections import OrderedDict
 from PIL import Image
-from pytorch_grad_cam import AblationCAM, EigenCAM
-from pytorch_grad_cam.ablation_layer import AblationLayerFasterRCNN
+from pytorch_grad_cam import AblationCAM, EigenCAM, ScoreCAM
+from pytorch_grad_cam.ablation_layer import AblationLayerFasterRCNN, AblationLayer
 from pytorch_grad_cam.utils.model_targets import FasterRCNNBoxScoreTarget
 from pytorch_grad_cam.utils.reshape_transforms import fasterrcnn_reshape_transform
 from pytorch_grad_cam.utils.image import show_cam_on_image, scale_accross_batch_and_channels, scale_cam_image
-from torch.nn.parallel import DataParallel, DistributedDataParallel
 from glob import glob
 import os
 from detectron2.config import LazyConfig, instantiate
 from detectron2.engine import (
-    SimpleTrainer,
     default_argument_parser,
-    default_setup,
-    hooks,
-    launch,
+    default_setup
 )
 from detectron2.engine.defaults import create_ddp_model
-from detectron2.engine import DefaultPredictor
-from detectron2.evaluation import inference_on_dataset, print_csv_format
-from detectron2.utils import comm
-from detectron2.utils.visualizer import Visualizer
-from detectron2.utils.visualizer import ColorMode
-from detectron2.utils.file_io import PathManager
 from detectron2.checkpoint import DetectionCheckpointer
-from detrex.utils import WandbWriter
-from detrex.modeling import ema
-
 
 class FasterRCNNBoxScoreTarget:
     """ For every original detected bounding box specified in "bounding boxes",
@@ -54,8 +42,15 @@ class FasterRCNNBoxScoreTarget:
         output = torch.Tensor([0])
         if torch.cuda.is_available():
             output = output.cuda()
-
-        if len(model_outputs["boxes"]) == 0:
+        if isinstance(model_outputs, dict) and len(model_outputs) == 1:
+            boxes = model_outputs["instances"].get("pred_boxes").tensor
+            labels = model_outputs["instances"].get("pred_classes")
+            scores = model_outputs["instances"].get("scores")
+        else:
+            boxes = model_outputs["boxes"]
+            labels = model_outputs["labels"]
+            scores = model_outputs["scores"]
+        if len(boxes) == 0:
             return output
 
         for box, label in zip(self.bounding_boxes, self.labels):
@@ -63,12 +58,45 @@ class FasterRCNNBoxScoreTarget:
             if torch.cuda.is_available():
                 box = box.cuda()
 
-            ious = torchvision.ops.box_iou(box, model_outputs["boxes"])
+            ious = torchvision.ops.box_iou(box, boxes)
             index = ious.argmax()
-            if ious[0, index] > self.iou_threshold and model_outputs["labels"][index] == label:
-                score = ious[0, index] + model_outputs["scores"][index]
+            if ious[0, index] > self.iou_threshold and labels[index] == label:
+                score = ious[0, index] + scores[index]
                 output = output + score
         return output
+    
+class AblationLayerFasterRCNN(AblationLayer):
+    def __init__(self):
+        super(AblationLayerFasterRCNN, self).__init__()
+
+    def set_next_batch(
+            self,
+            input_batch_index,
+            activations,
+            num_channels_to_ablate):
+        """ Extract the next batch member from activations,
+            and repeat it num_channels_to_ablate times.
+        """
+        self.activations = OrderedDict()
+        for key, value in activations.items():
+            fpn_activation = value[input_batch_index,
+                                   :, :, :].clone().unsqueeze(0)
+            self.activations[key] = fpn_activation.repeat(
+                num_channels_to_ablate, 1, 1, 1)
+
+    def __call__(self, x):
+        result = self.activations
+        # layers = {0: '0', 1: '1', 2: '2', 3: '3', 4: 'pool'}
+        # num_channels_to_ablate = result['pool'].size(0)
+        layers = {0: 'p2', 1: 'p3', 2: 'p4', 3: 'p5', 4: 'p6'}
+        # layers = {0: 'p3', 1: 'p4', 2: 'p5', 3: 'p6'}
+        num_channels_to_ablate = result['p6'].size(0)
+        for i in range(num_channels_to_ablate):
+            pyramid_layer = int(self.indices[i] / 256)
+            index_in_pyramid_layer = int(self.indices[i] % 256)
+            result[layers[pyramid_layer]][i,
+                                          index_in_pyramid_layer, :, :] = -1000
+        return result
     
 def predict(input_tensor, model, device, detection_threshold, mode='torch'):
     if mode == 'torch':
@@ -180,6 +208,23 @@ def get_sample_image(image_path='../sample.jpg', mode='local', device='cpu'):
     
     return img_data, orig, image_float_np
 
+def renormalize_cam_in_bounding_boxes(boxes, image_float_np, grayscale_cam):
+    """Normalize the CAM to be in the range [0, 1] 
+    inside every bounding boxes, and zero outside of the bounding boxes. """
+    renormalized_cam = np.zeros(grayscale_cam.shape, dtype=np.float32)
+    images = []
+    boxes = boxes.astype(np.uint16)
+    for x1, y1, x2, y2 in boxes:
+        img = renormalized_cam * 0
+        img[y1:y2, x1:x2] = scale_cam_image(grayscale_cam[y1:y2, x1:x2].copy())    
+        images.append(img)
+    
+    renormalized_cam = np.max(np.float32(images), axis = 0)
+    renormalized_cam = scale_cam_image(renormalized_cam)
+    eigencam_image_renormalized = show_cam_on_image(image_float_np, renormalized_cam, use_rgb=True)
+    # image_with_bounding_boxes = draw_boxes(boxes, labels, classes, eigencam_image_renormalized)
+    return eigencam_image_renormalized
+
 coco_names = ['__background__', 'person', 'bicycle', 'car', 'motorcycle', 'airplane', \
               'bus', 'train', 'truck', 'boat', 'traffic light', 'fire hydrant', 'N/A', 
               'stop sign', 'parking meter', 'bench', 'bird', 'cat', 'dog', 'horse', 'sheep', 
@@ -202,18 +247,41 @@ def main(args):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     image_url = "https://raw.githubusercontent.com/jacobgil/pytorch-grad-cam/master/examples/both.png"
     mode = 'detrex'
-    # data_folder = '/mnt/e/datasets/phenobench/val/images'
-    data_folder = '/mnt/e/datasets/sugarbeet_syn_v6/images'
+    # mode = 'torch'
+    data_folder = '/mnt/e/datasets/phenobench/val/images'
+    # data_folder = '/mnt/e/datasets/sugarbeet_syn_v6/images'
     
     # data_folder = '/mnt/e/datasets/cropandweed_dataset/labelIds/SugarBeet1'
     # image_folder = '/mnt/e/datasets/cropandweed_dataset/images'
     # labels = glob(os.path.join(data_folder, '*.png'))
     
     images = glob(os.path.join(data_folder, '*.png'))
-    # mode = 'torch'
     model = get_model(args, mode=mode, device=device)
+    target_layers = [model.backbone]
+    # target_layers = [model.neck]
+    cam = AblationCAM(model,
+                target_layers, 
+                #    use_cuda=torch.cuda.is_available(),
+                reshape_transform=fasterrcnn_reshape_transform,
+                ablation_layer=AblationLayerFasterRCNN(),
+                ratio_channels_to_ablate=0.1,
+                batch_size=1)
+    # cam = EigenCAM(model,
+    #             target_layers, 
+    #             #    use_cuda=torch.cuda.is_available(),
+    #             reshape_transform=fasterrcnn_reshape_transform)
     if mode == 'torch':
             sample, sample_orig, sample_np = get_sample_image(image_path=image_url, mode='url', device=device)
+            boxes, classes, labels, indices, scores = predict(sample, model, device, 0.5, mode=mode)
+            targets = [FasterRCNNBoxScoreTarget(labels=labels, bounding_boxes=boxes)]
+            # CAM expects a batch of images, so we need to add a batch dimension with B X C X H X W
+            grayscale_cam = cam(input_tensor=sample, targets=targets)
+            grayscale_cam = grayscale_cam[0, :]
+            # grayscale_cam = renormalize_cam_in_bounding_boxes(boxes, sample_np, grayscale_cam)
+            cam_image = show_cam_on_image(sample_np, grayscale_cam, use_rgb=True)
+            image_with_bounding_boxes = draw_boxes(boxes, labels, classes, scores, cam_image)
+            cv2.imshow("Image", cv2.cvtColor(image_with_bounding_boxes, cv2.COLOR_RGB2BGR))
+            cv2.waitKey(0)
     else:
         for i, image_path in enumerate(images):
             sample, sample_orig, sample_np = get_sample_image(
@@ -222,23 +290,16 @@ def main(args):
                     mode='local', device=device)
 
             boxes, classes, labels, indices, scores = predict(sample, model, device, 0.5, mode=mode)
+            targets = [FasterRCNNBoxScoreTarget(labels=labels, bounding_boxes=boxes)]
             # image = draw_boxes(boxes, labels, classes, scores, sample_orig)
             # Show the image:
             # cv2.imshow("Image", cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
             # cv2.waitKey(0)
             # cv2.destroyAllWindows()
-
-            target_layers = [model.backbone]
-            # target_layers = [model.neck]
-            targets = [FasterRCNNBoxScoreTarget(labels=labels, bounding_boxes=boxes)]
-            cam = EigenCAM(model,
-                        target_layers, 
-                        #    use_cuda=torch.cuda.is_available(),
-                        reshape_transform=fasterrcnn_reshape_transform)
-
             # CAM expects a batch of images, so we need to add a batch dimension with B X C X H X W
             grayscale_cam = cam(input_tensor=sample[0]['image'].unsqueeze(0), targets=targets)
             grayscale_cam = grayscale_cam[0, :]
+            # grayscale_cam = renormalize_cam_in_bounding_boxes(boxes, sample_np, grayscale_cam)
             cam_image = show_cam_on_image(sample_np, grayscale_cam, use_rgb=True)
             image_with_bounding_boxes = draw_boxes(boxes, labels, classes, scores, cam_image)
 
