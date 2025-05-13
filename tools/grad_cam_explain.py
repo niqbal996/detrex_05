@@ -248,7 +248,7 @@ def main(args):
     image_url = "https://raw.githubusercontent.com/jacobgil/pytorch-grad-cam/master/examples/both.png"
     mode = 'detrex'
     # mode = 'torch'
-    data_folder = '/mnt/e/datasets/phenobench/val/images'
+    data_folder = '/mnt/e/datasets/explain_trial_set'
     # data_folder = '/mnt/e/datasets/sugarbeet_syn_v6/images'
     
     # data_folder = '/mnt/e/datasets/cropandweed_dataset/labelIds/SugarBeet1'
@@ -302,10 +302,11 @@ def main(args):
             # grayscale_cam = renormalize_cam_in_bounding_boxes(boxes, sample_np, grayscale_cam)
             cam_image = show_cam_on_image(sample_np, grayscale_cam, use_rgb=True)
             image_with_bounding_boxes = draw_boxes(boxes, labels, classes, scores, cam_image)
-
+            cv2.imwrite(os.path.join('/home/niqbal/git/aa_transformers/detrex/syn_on_real_images', os.path.basename(image_path)[:-4] + '_cam.png'), 
+                        cv2.cvtColor(image_with_bounding_boxes, cv2.COLOR_RGB2BGR))
             # Show the image:
-            cv2.imshow("Image", cv2.cvtColor(image_with_bounding_boxes, cv2.COLOR_RGB2BGR))
-            cv2.waitKey(0)
+            # cv2.imshow("Image", cv2.cvtColor(image_with_bounding_boxes, cv2.COLOR_RGB2BGR))
+            # cv2.waitKey(0)
         cv2.destroyAllWindows()
     
 if __name__ == "__main__":
