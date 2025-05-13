@@ -124,9 +124,9 @@ def predict(input_tensor, model, device, detection_threshold, mode='torch'):
             classes = [pheno_names[i] for i in labels]
             indices = np.where(scores > detection_threshold)
 
-            # boxes = boxes[indices]
-            # scores = scores[indices]
-            # labels = labels[indices]
+            boxes = boxes[indices]
+            scores = scores[indices]
+            labels = labels[indices]
         return boxes, classes, labels, indices, scores
 
 def draw_boxes(boxes, labels, classes, scores, image):
@@ -138,7 +138,8 @@ def draw_boxes(boxes, labels, classes, scores, image):
             (int(box[2]), int(box[3])),
             color, 2
         )
-        cv2.putText(image, f'{classes[i]} {np.round(scores[i], 2):.2f}', 
+        cv2.putText(image, f'{scores[i]:.4f}', 
+                    # f'{classes[i]} {np.round(scores[i], 2):.2f}'
                 (int(box[0]), int(box[1] - 5)),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2,
                 lineType=cv2.LINE_AA)
@@ -182,7 +183,7 @@ def get_sample_image(image_path='../sample.jpg', mode='local', device='cpu'):
         img_data = []
         img_dict = {}
         img_dict['filename'] = image_path
-        img = Image.open(image_path)
+        img = Image.open(image_path).convert('RGB')
         img = np.array(img)
         image_float_np = np.float32(img) / 255
         orig = img.copy()
@@ -220,10 +221,35 @@ def renormalize_cam_in_bounding_boxes(boxes, image_float_np, grayscale_cam):
         images.append(img)
     
     renormalized_cam = np.max(np.float32(images), axis = 0)
-    renormalized_cam = scale_cam_image(renormalized_cam)
-    eigencam_image_renormalized = show_cam_on_image(image_float_np, renormalized_cam, use_rgb=True)
+    # renormalized_cam = scale_cam_image(renormalized_cam)
+    # eigencam_image_renormalized = show_cam_on_image(image_float_np, renormalized_cam, use_rgb=True)
     # image_with_bounding_boxes = draw_boxes(boxes, labels, classes, eigencam_image_renormalized)
-    return eigencam_image_renormalized
+    return renormalized_cam
+
+def find_boxes_with_iou(input_box, boxes, iou_threshold=0.5):
+    """
+    Finds the indices of boxes that have an IoU greater than the given threshold with the input box.
+
+    Args:
+        input_box (numpy.ndarray or torch.Tensor): The input box of shape (4,) in [x1, y1, x2, y2] format.
+        boxes (numpy.ndarray or torch.Tensor): A list of boxes of shape (N, 4) in [x1, y1, x2, y2] format.
+        iou_threshold (float): The IoU threshold to filter boxes.
+
+    Returns:
+        list: Indices of boxes that satisfy the IoU threshold.
+    """
+    # Convert input_box and boxes to torch tensors if they are numpy arrays
+    if isinstance(input_box, np.ndarray):
+        input_box = torch.tensor(input_box, dtype=torch.float32)
+    if isinstance(boxes, np.ndarray):
+        boxes = torch.tensor(boxes, dtype=torch.float32)    
+    # Compute IoU between the input box and all boxes
+    ious = torchvision.ops.box_iou(input_box, boxes)
+
+    # Find indices of boxes with IoU greater than the threshold
+    indices = torch.where(ious[0] > iou_threshold)[0]
+
+    return indices.tolist(), ious[0][indices].tolist()
 
 coco_names = ['__background__', 'person', 'bicycle', 'car', 'motorcycle', 'airplane', \
               'bus', 'train', 'truck', 'boat', 'traffic light', 'fire hydrant', 'N/A', 
@@ -248,7 +274,7 @@ def main(args):
     image_url = "https://raw.githubusercontent.com/jacobgil/pytorch-grad-cam/master/examples/both.png"
     mode = 'detrex'
     # mode = 'torch'
-    data_folder = '/mnt/e/datasets/explain_trial_set'
+    data_folder = '/mnt/e/datasets/explain_trial_set/single'
     # data_folder = '/mnt/e/datasets/sugarbeet_syn_v6/images'
     
     # data_folder = '/mnt/e/datasets/cropandweed_dataset/labelIds/SugarBeet1'
@@ -277,7 +303,7 @@ def main(args):
             # CAM expects a batch of images, so we need to add a batch dimension with B X C X H X W
             grayscale_cam = cam(input_tensor=sample, targets=targets)
             grayscale_cam = grayscale_cam[0, :]
-            # grayscale_cam = renormalize_cam_in_bounding_boxes(boxes, sample_np, grayscale_cam)
+            grayscale_cam = renormalize_cam_in_bounding_boxes(boxes, sample_np, grayscale_cam)
             cam_image = show_cam_on_image(sample_np, grayscale_cam, use_rgb=True)
             image_with_bounding_boxes = draw_boxes(boxes, labels, classes, scores, cam_image)
             cv2.imshow("Image", cv2.cvtColor(image_with_bounding_boxes, cv2.COLOR_RGB2BGR))
@@ -290,23 +316,32 @@ def main(args):
                     mode='local', device=device)
 
             boxes, classes, labels, indices, scores = predict(sample, model, device, 0.5, mode=mode)
-            targets = [FasterRCNNBoxScoreTarget(labels=labels, bounding_boxes=boxes)]
-            # image = draw_boxes(boxes, labels, classes, scores, sample_orig)
+            image = draw_boxes(boxes, labels, classes, scores, sample_orig)
             # Show the image:
-            # cv2.imshow("Image", cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
-            # cv2.waitKey(0)
-            # cv2.destroyAllWindows()
-            # CAM expects a batch of images, so we need to add a batch dimension with B X C X H X W
-            grayscale_cam = cam(input_tensor=sample[0]['image'].unsqueeze(0), targets=targets)
-            grayscale_cam = grayscale_cam[0, :]
-            # grayscale_cam = renormalize_cam_in_bounding_boxes(boxes, sample_np, grayscale_cam)
-            cam_image = show_cam_on_image(sample_np, grayscale_cam, use_rgb=True)
-            image_with_bounding_boxes = draw_boxes(boxes, labels, classes, scores, cam_image)
-            cv2.imwrite(os.path.join('/home/niqbal/git/aa_transformers/detrex/syn_on_real_images', os.path.basename(image_path)[:-4] + '_cam.png'), 
-                        cv2.cvtColor(image_with_bounding_boxes, cv2.COLOR_RGB2BGR))
-            # Show the image:
-            # cv2.imshow("Image", cv2.cvtColor(image_with_bounding_boxes, cv2.COLOR_RGB2BGR))
-            # cv2.waitKey(0)
+            cv2.imshow("Image", cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
+            cv2.waitKey(0)
+            box_gt = np.array([[381 , 907, 483, 981]], dtype=np.float32)
+            indices, iou = find_boxes_with_iou(box_gt, boxes, iou_threshold=0.5)
+            for i, index in enumerate(indices):
+                print('GT_IOU: {} and Confidence value: {}'.format(iou[i], scores[index]))
+                box = [boxes[index]]
+                label = np.array([labels[index]], dtype=np.int32)
+                score = np.array([scores[index]], dtype=np.float32)
+                classes = ['sugarbeet']
+                # tmp_labels, tmp_boxes = labels[0:1], boxes[0:1, :]
+                targets = [FasterRCNNBoxScoreTarget(labels=label, bounding_boxes=box)]
+                # CAM expects a batch of images, so we need to add a batch dimension with B X C X H X W
+                grayscale_cam = cam(input_tensor=sample[0]['image'].unsqueeze(0), targets=targets)
+                grayscale_cam = grayscale_cam[0, :]
+                # grayscale_cam = renormalize_cam_in_bounding_boxes(boxes, sample_np, grayscale_cam)
+                cam_image = show_cam_on_image(sample_np, grayscale_cam, use_rgb=True)
+                # image_with_bounding_boxes = draw_boxes(boxes, labels, classes, scores, cam_image)
+                image_with_bounding_boxes = draw_boxes(box, label, classes, score, cam_image)
+                # cv2.imwrite(os.path.join('/home/niqbal/git/aa_transformers/detrex/real_on_syn_images/sugarbeets', os.path.basename(image_path)[:-4] + '_cam.png'), 
+                #             cv2.cvtColor(image_with_bounding_boxes, cv2.COLOR_RGB2BGR))
+                # Show the image:
+                cv2.imshow("Image", cv2.cvtColor(cam_image, cv2.COLOR_RGB2BGR))
+                cv2.waitKey(0)
         cv2.destroyAllWindows()
     
 if __name__ == "__main__":
